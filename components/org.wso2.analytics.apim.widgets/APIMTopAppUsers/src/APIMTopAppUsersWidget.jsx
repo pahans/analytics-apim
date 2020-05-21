@@ -17,7 +17,7 @@
  *
  */
 
-import React from 'react';
+import React, { Component } from 'react';
 import {
     defineMessages, IntlProvider, FormattedMessage, addLocaleData,
 } from 'react-intl';
@@ -26,7 +26,7 @@ import cloneDeep from 'lodash/cloneDeep';
 import { MuiThemeProvider, createMuiTheme } from '@material-ui/core/styles';
 import Paper from '@material-ui/core/Paper';
 import Typography from '@material-ui/core/Typography';
-import Widget from '@wso2-dashboards/widget';
+import withWrappedWidget from '@analytics-apim/common-lib/src/WrappedWidget';
 
 import APIMTopAppUsers from './APIMTopAppUsers';
 
@@ -53,18 +53,6 @@ const lightTheme = createMuiTheme({
  * @type {string}
  */
 const queryParamKey = 'topAppUsers';
-
-/**
- * Language
- * @type {string}
- */
-const language = (navigator.languages && navigator.languages[0]) || navigator.language || navigator.userLanguage;
-
-/**
- * Language without region code
- */
-const languageWithoutRegionCode = language.toLowerCase().split(/[_-]+/)[0];
-
 /**
  * Compare two values and return the result
  * @param {object} a - data field
@@ -89,7 +77,7 @@ function sortFunction(a, b) {
  * @class APIMTopAppUsersWidget
  * @extends {Widget}
  */
-class APIMTopAppUsersWidget extends Widget {
+class APIMTopAppUsersWidget extends Component {
     constructor(props) {
         super(props);
         this.styles = {
@@ -116,26 +104,15 @@ class APIMTopAppUsersWidget extends Widget {
         };
 
         this.state = {
-            width: this.props.width,
-            height: this.props.height,
             limit: 5,
             applicationUUIDMap: [],
             applicationList: [],
             applicationSelected: null,
             usageData: [],
             legendData: [],
-            localeMessages: null,
             inProgress: true,
             proxyError: false,
         };
-
-        // This will re-size the widget when the glContainer's width is changed.
-        if (this.props.glContainer !== undefined) {
-            this.props.glContainer.on('resize', () => this.setState({
-                width: this.props.glContainer.width,
-                height: this.props.glContainer.height,
-            }));
-        }
 
         this.handlePublisherParameters = this.handlePublisherParameters.bind(this);
         this.applicationSelectedHandleChange = this.applicationSelectedHandleChange.bind(this);
@@ -148,55 +125,9 @@ class APIMTopAppUsersWidget extends Widget {
         this.handleAppIdDataReceived = this.handleAppIdDataReceived.bind(this);
     }
 
-    componentWillMount() {
-        const locale = (languageWithoutRegionCode || language || 'en');
-        this.loadLocale(locale).catch(() => {
-            this.loadLocale().catch(() => {
-                // TODO: Show error message.
-            });
-        });
-    }
-
-    componentDidMount() {
-        const { widgetID } = this.props;
-
-        super.getWidgetConfiguration(widgetID)
-            .then((message) => {
-                this.setState({
-                    providerConfig: message.data.configs.providerConfig,
-                }, () => super.subscribe(this.handlePublisherParameters));
-            })
-            .catch((error) => {
-                console.error("Error occurred when loading widget '" + widgetID + "'. " + error);
-                this.setState({
-                    faultyProviderConfig: true,
-                });
-            });
-    }
-
     componentWillUnmount() {
-        const { id } = this.props;
-        super.getWidgetChannelManager().unsubscribeWidget(id);
-    }
-
-    /**
-     * Load locale file.
-     *
-     * @param {string} locale Locale name
-     * @memberof APIMTopAppUsersWidget
-     */
-    loadLocale(locale = 'en') {
-        return new Promise((resolve, reject) => {
-            Axios
-                .get(`${window.contextPath}/public/extensions/widgets/APIMTopAppUsers/locales/${locale}.json`)
-                .then((response) => {
-                    // eslint-disable-next-line global-require, import/no-dynamic-require
-                    addLocaleData(require(`react-intl/locale-data/${locale}`));
-                    this.setState({ localeMessages: defineMessages(response.data) });
-                    resolve();
-                })
-                .catch(error => reject(error));
-        });
+        const { id, getWidgetChannelManager } = this.props;
+        getWidgetChannelManager().unsubscribeWidget(id);
     }
 
     /**
@@ -206,7 +137,8 @@ class APIMTopAppUsersWidget extends Widget {
      * @memberof APIMTopAppUsersWidget
      * */
     handlePublisherParameters(receivedMsg) {
-        const queryParam = super.getGlobalState('dtrp');
+        const { id, getGlobalState } = this.props;
+        const queryParam = getGlobalState('dtrp');
         const { sync } = queryParam;
 
         this.setState({
@@ -269,7 +201,7 @@ class APIMTopAppUsersWidget extends Widget {
             dataProviderConfigs.configs.config.queryData.queryValues = {
                 '{{applicationUUID}}': 'UUID==\'' + Object.keys(applicationUUIDMap).join('\' OR UUID==\'') + '\'',
             };
-            super.getWidgetChannelManager()
+            getWidgetChannelManager()
                 .subscribeWidget(id, widgetName, this.handleAppIdDataReceived, dataProviderConfigs);
         } else {
             this.setState({ inProgress: false, usageData: [] });
@@ -283,7 +215,7 @@ class APIMTopAppUsersWidget extends Widget {
      * */
     handleAppIdDataReceived(message) {
         const { data } = message;
-        const { id } = this.props;
+        const { id, getWidgetChannelManager } = this.props;
         const { applicationUUIDMap } = this.state;
 
         if (data) {
@@ -308,7 +240,7 @@ class APIMTopAppUsersWidget extends Widget {
                 applicationSelected = 'All';
             }
             this.setQueryParam(applicationSelected, limit);
-            super.getWidgetChannelManager().unsubscribeWidget(id);
+            getWidgetChannelManager().unsubscribeWidget(id);
             this.setState({ applicationList, applicationSelected, limit }, this.assembleMainQuery);
         } else {
             this.setState({ inProgress: false, usageData: [] });
@@ -327,7 +259,7 @@ class APIMTopAppUsersWidget extends Widget {
         const { applicationSelected, limit } = queryParam;
 
         if (applicationSelected && limit) {
-            const { id, widgetID: widgetName } = this.props;
+            const { id, widgetID: widgetName, subscribeWidget } = this.props;
             const dataProviderConfigs = cloneDeep(providerConfig);
             const applicationIds = applicationList.map((app) => { return app.appId; });
             let applicationCondition;
@@ -347,36 +279,35 @@ class APIMTopAppUsersWidget extends Widget {
                 '{{per}}': perValue,
                 '{{limit}}': limit,
             };
-            super.getWidgetChannelManager()
-                .subscribeWidget(id, widgetName, this.handleDataReceived, dataProviderConfigs);
+            subscribeWidget('usageData', dataProviderConfigs);
         } else {
             this.setState({ inProgress: false, usageData: [] });
         }
     }
 
-    /**
-     * Formats data retrieved from assembleMainQuery
-     * @param {object} message - data retrieved
-     * @memberof APIMTopAppUsersWidget
-     * */
-    handleDataReceived(message) {
-        const { data } = message;
+    // /**
+    //  * Formats data retrieved from assembleMainQuery
+    //  * @param {object} message - data retrieved
+    //  * @memberof APIMTopAppUsersWidget
+    //  * */
+    // handleDataReceived(message) {
+    //     const { data } = message;
 
-        if (data) {
-            const usageData = data.map((dataUnit) => {
-                return {
-                    username: dataUnit[0],
-                    hits: dataUnit[1],
-                };
-            });
-            const legendData = usageData.map((dataUnit) => {
-                return { name: dataUnit.username };
-            });
-            this.setState({ usageData, legendData, inProgress: false });
-        } else {
-            this.setState({ inProgress: false, usageData: [] });
-        }
-    }
+    //     if (data) {
+    //         const usageData = data.map((dataUnit) => {
+    //             return {
+    //                 username: dataUnit[0],
+    //                 hits: dataUnit[1],
+    //             };
+    //         });
+    //         const legendData = usageData.map((dataUnit) => {
+    //             return { name: dataUnit.username };
+    //         });
+    //         this.setState({ usageData, legendData, inProgress: false });
+    //     } else {
+    //         this.setState({ inProgress: false, usageData: [] });
+    //     }
+    // }
 
     /**
      * Updates query param values
@@ -397,7 +328,7 @@ class APIMTopAppUsersWidget extends Widget {
      * @memberof APIMTopAppUsersWidget
      * */
     handleLimitChange(event) {
-        const { id } = this.props;
+        const { id, getWidgetChannelManager } = this.props;
         const { applicationSelected } = this.state;
         // disallow negative and decimal values
         const limit = (event.target.value).replace('-', '').split('.')[0];
@@ -405,7 +336,7 @@ class APIMTopAppUsersWidget extends Widget {
         this.setQueryParam(applicationSelected, parseInt(limit, 10));
         if (limit) {
             this.setState({ inProgress: true, limit });
-            super.getWidgetChannelManager().unsubscribeWidget(id);
+            getWidgetChannelManager().unsubscribeWidget(id);
             this.assembleMainQuery();
         } else {
             this.setState({ limit });
@@ -420,7 +351,7 @@ class APIMTopAppUsersWidget extends Widget {
     applicationSelectedHandleChange(event) {
         this.setState({ inProgress: true });
         let { limit } = this.state;
-        const { id } = this.props;
+        const { id, getWidgetChannelManager } = this.props;
 
         if (!limit) {
             limit = 5;
@@ -428,7 +359,7 @@ class APIMTopAppUsersWidget extends Widget {
 
         this.setQueryParam(event.target.value, limit);
         this.setState({ applicationSelected: event.target.value, limit });
-        super.getWidgetChannelManager().unsubscribeWidget(id);
+        getWidgetChannelManager().unsubscribeWidget(id);
         this.assembleMainQuery();
     }
 
@@ -439,13 +370,14 @@ class APIMTopAppUsersWidget extends Widget {
      */
     render() {
         const {
-            localeMessages, faultyProviderConfig, height, width, limit, applicationSelected, usageData, legendData,
+            faultyProviderConfig, limit, applicationSelected,
             applicationList, inProgress, proxyError,
         } = this.state;
         const {
             paper, paperWrapper, proxyPaper, proxyPaperWrapper,
         } = this.styles;
-        const { muiTheme } = this.props;
+        const { muiTheme, width, height, data } = this.props;
+        const { usageData } = data;
         const themeName = muiTheme.name;
         const appUsersProps = {
             themeName,
@@ -455,73 +387,73 @@ class APIMTopAppUsersWidget extends Widget {
             applicationList,
             applicationSelected,
             usageData,
-            legendData,
+            [],
             inProgress,
         };
 
         return (
-            <IntlProvider locale={language} messages={localeMessages}>
-                <MuiThemeProvider
-                    theme={themeName === 'dark' ? darkTheme : lightTheme}
-                >
-                    { proxyError ? (
-                        <div style={proxyPaperWrapper}>
-                            <Paper
-                                elevation={1}
-                                style={proxyPaper}
-                            >
-                                <Typography variant='h5' component='h3'>
-                                    <FormattedMessage
-                                        id='apim.server.error.heading'
-                                        defaultMessage='Error!'
-                                    />
-                                </Typography>
-                                <Typography component='p'>
-                                    <FormattedMessage
-                                        id='apim.server.error'
-                                        defaultMessage='Error occurred while retrieving application list.'
-                                    />
-                                </Typography>
-                            </Paper>
-                        </div>
-                    ) : (
-                        <div>
-                            {
-                                faultyProviderConfig ? (
-                                    <div style={paperWrapper}>
-                                        <Paper
-                                            elevation={1}
-                                            style={paper}
-                                        >
-                                            <Typography variant='h5' component='h3'>
-                                                <FormattedMessage
-                                                    id='config.error.heading'
-                                                    defaultMessage='Configuration Error !'
-                                                />
-                                            </Typography>
-                                            <Typography component='p'>
-                                                <FormattedMessage
-                                                    id='config.error.body'
-                                                    defaultMessage={'Cannot fetch provider configuration for APIM'
-                                                    + ' Top Application Users widget'}
-                                                />
-                                            </Typography>
-                                        </Paper>
-                                    </div>
-                                ) : (
-                                    <APIMTopAppUsers
-                                        {...appUsersProps}
-                                        applicationSelectedHandleChange={this.applicationSelectedHandleChange}
-                                        handleLimitChange={this.handleLimitChange}
-                                    />
-                                )
-                            }
-                        </div>
-                    )}
-                </MuiThemeProvider>
-            </IntlProvider>
+            <MuiThemeProvider
+                theme={themeName === 'dark' ? darkTheme : lightTheme}
+            >
+                { proxyError ? (
+                    <div style={proxyPaperWrapper}>
+                        <Paper
+                            elevation={1}
+                            style={proxyPaper}
+                        >
+                            <Typography variant='h5' component='h3'>
+                                <FormattedMessage
+                                    id='apim.server.error.heading'
+                                    defaultMessage='Error!'
+                                />
+                            </Typography>
+                            <Typography component='p'>
+                                <FormattedMessage
+                                    id='apim.server.error'
+                                    defaultMessage='Error occurred while retrieving application list.'
+                                />
+                            </Typography>
+                        </Paper>
+                    </div>
+                ) : (
+                    <div>
+                        {
+                            faultyProviderConfig ? (
+                                <div style={paperWrapper}>
+                                    <Paper
+                                        elevation={1}
+                                        style={paper}
+                                    >
+                                        <Typography variant='h5' component='h3'>
+                                            <FormattedMessage
+                                                id='config.error.heading'
+                                                defaultMessage='Configuration Error !'
+                                            />
+                                        </Typography>
+                                        <Typography component='p'>
+                                            <FormattedMessage
+                                                id='config.error.body'
+                                                defaultMessage={'Cannot fetch provider configuration for APIM'
+                                                + ' Top Application Users widget'}
+                                            />
+                                        </Typography>
+                                    </Paper>
+                                </div>
+                            ) : (
+                                <APIMTopAppUsers
+                                    {...appUsersProps}
+                                    applicationSelectedHandleChange={this.applicationSelectedHandleChange}
+                                    handleLimitChange={this.handleLimitChange}
+                                />
+                            )
+                        }
+                    </div>
+                )}
+            </MuiThemeProvider>
         );
     }
 }
 
-global.dashboard.registerWidget('APIMTopAppUsers', APIMTopAppUsersWidget);
+withWrappedWidget(APIMTopAppUsersWidget, 'APIMTopAppUsers');
+
+export default APIMTopAppUsersWidget;

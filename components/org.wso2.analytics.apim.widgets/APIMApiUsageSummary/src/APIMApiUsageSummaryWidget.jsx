@@ -67,10 +67,8 @@ class APIMApiUsageSummaryWidget extends Component {
      */
     constructor(props) {
         super(props);
-
-        const { inProgress } = this.props;
         this.state = {
-            inProgress,
+            faultyProviderConf: null,
         };
 
         const { height } = props;
@@ -99,7 +97,7 @@ class APIMApiUsageSummaryWidget extends Component {
 
     /**
      *
-     * @param {any} props @inheritDoc
+     * @param {any} prevProps @inheritDoc
      */
     componentDidUpdate(prevProps) {
         const {
@@ -165,14 +163,14 @@ class APIMApiUsageSummaryWidget extends Component {
      */
     render() {
         const {
-            id, data,
+            id, data, inProgress,
         } = this.props;
 
         // Received data is in a two dimentional array, unwind it to get counts
         const thisWeekCount = ([data[id + THIS_WEEK] || []][0] || [])[0] || 0;
         const lastWeekCount = ([data[id + LAST_WEEK] || []][0] || [])[0] || 0;
         const {
-            faultyProviderConf, inProgress,
+            faultyProviderConf,
         } = this.state;
         const {
             loadingIcon, paper, paperWrapper, loading,
